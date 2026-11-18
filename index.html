@@ -1329,13 +1329,23 @@ const runTotal=r=>r.lv.reduce((a,b)=>a+(b|0),0);
 const progLabel=(d,a)=>d>=4?'Alrigio befreit':(a|0)>d?'in Level '+a:d<=0?'in Level 1':'Level '+d+' geschafft';
 function saveRuns(){ try{ localStorage.setItem('vod_runs',JSON.stringify(RUNS)); }catch(e){} }
 const HS={db:null,uid:null,list:[],state:'load',writeOk:null};
-(async()=>{ try{ if(typeof claude==='undefined'||!claude.use){ HS.state='off'; return; } const db=await claude.use('db'), user=await claude.use('user'); if(!db||!user){ HS.state='off'; refreshBoard(); return; } HS.db=db; HS.uid=await user.id(); if(!HS.uid){ HS.state='off'; refreshBoard(); return; }
+/* Firebase (Firestore REST) – gemeinsame Bestenliste außerhalb von claude.ai */
+const FB={project:'vod-in-aranien',key:'',col:'vodscores'};
+const fbURL=(path,q)=>'https://firestore.googleapis.com/v1/projects/'+FB.project+'/databases/(default)/documents/'+path+'?'+(FB.key?'key='+FB.key+'&':'')+(q||'');
+let fbTimer=null;
+async function fbLoad(){ try{ const r=await fetch(fbURL(FB.col,'pageSize=300')); if(!r.ok) throw 0; const j=await r.json(); const L=[]; for(const d of (j.documents||[])){ const f=d.fields||{}, iv=k=>Math.max(0,parseInt((f[k]||{}).integerValue||'0',10)||0); L.push({uid:d.name.split('/').pop(),n:String((f.n||{}).stringValue||'?').slice(0,16),c:iv('c'),d:Math.min(4,iv('d')),a:Math.min(4,iv('a')),t:iv('t')}); } L.sort((a,b)=>b.c-a.c||b.d-a.d||b.a-a.a||a.t-b.t); HS.list=L; HS.state='ok'; }catch(e){ if(HS.state!=='ok') HS.state='slow'; } refreshBoard(); }
+function fbId(){ let p=''; try{ p=localStorage.getItem('vod_pid')||''; if(!p){ p=Math.random().toString(36).slice(2,12); localStorage.setItem('vod_pid',p); } }catch(e){ p='x'; } return (p+'-'+nkey(PNAME)).replace(/[^A-Za-z0-9_-]/g,'').slice(0,80); }
+async function fbSubmit(){ const r=myRun(), id=fbId(); const mine=HS.list.find(x=>x.uid===id); const c=Math.max(runTotal(r),mine?mine.c:0), d=Math.max(r.d|0,mine?mine.d:0), a=Math.max(r.a|0,r.d|0,mine?mine.a:0);
+  const body={fields:{n:{stringValue:PNAME},c:{integerValue:String(c)},d:{integerValue:String(d)},a:{integerValue:String(Math.min(4,a))},t:{integerValue:String(Date.now())}}};
+  const res=await fetch(fbURL(FB.col+'/'+id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(!res.ok) throw new Error('fb '+res.status); HS.writeOk=true; fbLoad(); }
+(async()=>{ try{ if(typeof claude==='undefined'||!claude.use){ HS.mode='fb'; HS.state='load'; fbLoad(); fbTimer=setInterval(()=>{ if(document.getElementById('board')) fbLoad(); },20000); if(PNAME&&RUNS[PNAME]) setTimeout(submitScore,1500); return; } const db=await claude.use('db'), user=await claude.use('user'); if(!db||!user){ HS.state='off'; refreshBoard(); return; } HS.db=db; HS.uid=await user.id(); if(!HS.uid){ HS.state='off'; refreshBoard(); return; }
   const tm=setTimeout(()=>{ if(HS.state==='load'){ HS.state='slow'; refreshBoard(); } },10000);
   db.collection('scores').onSnapshot(snap=>{ if(!snap.metadata.fromCache) clearTimeout(tm); const L=[]; snap.docs.forEach(d=>{ const e=(d.data()||{}).e||{}; for(const k in e){ const v=e[k]; if(v&&typeof v.c==='number') L.push({uid:d.id,n:String(v.n||'?').slice(0,16),c:Math.max(0,v.c|0),d:Math.max(0,Math.min(4,v.d|0)),a:Math.max(0,Math.min(4,v.a|0)),t:+v.t||0}); } }); L.sort((a,b)=>b.c-a.c||b.d-a.d||(b.a|0)-(a.a|0)||a.t-b.t); HS.list=L; HS.state='ok'; refreshBoard(); }, ()=>{ clearTimeout(tm); HS.state='off'; refreshBoard(); });
   if(PNAME&&RUNS[PNAME]) submitScore();
  }catch(e){ HS.state='off'; refreshBoard(); } })();
 let hsBusy=false, hsAgain=false;
-async function submitScore(){ if(!PNAME||!HS.db||!HS.uid) return; if(hsBusy){ hsAgain=true; return; } hsBusy=true;
+async function submitScore(){ if(HS.mode==='fb'){ if(!PNAME) return; if(hsBusy){ hsAgain=true; return; } hsBusy=true; try{ await fbSubmit(); }catch(e){ HS.writeOk=false; } hsBusy=false; refreshBoard(); if(hsAgain){ hsAgain=false; submitScore(); } return; }
+  if(!PNAME||!HS.db||!HS.uid) return; if(hsBusy){ hsAgain=true; return; } hsBusy=true;
   try{ const r=myRun(), ref=HS.db.doc('scores/'+HS.uid), snap=await ref.get(); const body=snap.exists?JSON.parse(JSON.stringify(snap.data())):{}; body.e=body.e||{}; const k=nkey(PNAME), old=body.e[k], nw={n:PNAME,c:runTotal(r),d:r.d|0,a:Math.max(r.a|0,r.d|0),t:Date.now()};
     if(!old||nw.c>old.c||nw.d>(old.d|0)||nw.a>(old.a|0)){ if(old){ nw.c=Math.max(nw.c,old.c|0); nw.d=Math.max(nw.d,old.d|0); nw.a=Math.max(nw.a,old.a|0); } body.e[k]=nw; await ref.set(body); } HS.writeOk=true; }
   catch(e){ HS.writeOk=false; }
@@ -1345,7 +1355,7 @@ function recordLevel(){ if(!PNAME) return; const r=myRun(), i=game.level; if(i<0
 function boardRows(limit){
   let L, shared=HS.state==='ok';
   if(shared) L=HS.list; else { L=Object.keys(RUNS).map(n=>({uid:HS.uid,n,c:runTotal(RUNS[n]),d:RUNS[n].d|0,a:RUNS[n].a|0,t:0})).sort((a,b)=>b.c-a.c||b.d-a.d||b.a-a.a); }
-  const isMe=x=>x.n===PNAME&&(!shared||x.uid===HS.uid);
+  const isMe=x=>x.n===PNAME&&(!shared||(HS.mode==='fb'?x.uid===fbId():x.uid===HS.uid));
   let myIdx=L.findIndex(isMe), rows=L.slice(0,limit).map((x,i)=>[i,x]);
   if(myIdx>=limit) rows.push([myIdx,L[myIdx]]);
   const html=rows.length?`<table class="hs">${rows.map(([i,x])=>`<tr class="${isMe(x)?'me':''}"><td class="r">${i+1}.</td><td>${esc(x.n)}</td><td class="c">${x.c} D.</td><td class="p">${progLabel(x.d,x.a)}</td></tr>`).join('')}</table>`:`<p class="hsnote">Noch keine Einträge.</p>`;
@@ -1431,7 +1441,7 @@ function showScreen(kind){
     bindDiff(); document.getElementById('go').onclick=()=>go(i);
   } else if(kind==='board'){
     card.innerHTML=`<h1 class="fr">Bestenliste</h1><h2>Gewertet nach Dukaten</h2><p class="hsnote" id="myrank"></p><div id="board" data-lim="20"></div><button class="main" id="back">Zurück</button>`;
-    document.getElementById('back').onclick=()=>showScreen('intro'); refreshBoard(); return;
+    document.getElementById('back').onclick=()=>showScreen('intro'); refreshBoard(); if(HS.mode==='fb') fbLoad(); return;
   } else if(kind==='faint'){
     card.innerHTML=`<h1>Vod geht zu Boden</h1><h2>Ohnmächtig, aber ungebrochen.</h2>${game.lostCoins>0?`<p>Die Hälfte der Dukaten ist weg: −${game.lostCoins}</p>`:''}<p class="note">Es geht weiter am letzten Wegpunkt …</p>`;
   } else if(kind==='pause'){
