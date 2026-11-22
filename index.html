@@ -21,7 +21,7 @@ html,body{margin:0;height:100%;background:#06080e;overflow:hidden;touch-action:n
 .bubble:after{content:'';position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:#e9e1cf}
 .bubble.npc{background:#cfd6e4}
 .bubble.npc:after{border-top-color:#cfd6e4}
-#touch{position:fixed;left:0;right:0;top:0;bottom:0;display:none;justify-content:space-between;align-items:center;padding:22vh max(10px,env(safe-area-inset-right)) 0 max(10px,env(safe-area-inset-left));box-sizing:border-box;pointer-events:none}
+#touch{position:fixed;left:0;right:0;top:0;bottom:0;display:none;justify-content:space-between;align-items:center;padding:22vh max(30px,calc(env(safe-area-inset-right) + 18px)) 0 max(26px,calc(env(safe-area-inset-left) + 14px));box-sizing:border-box;pointer-events:none}
 body.touch.playing #touch{display:flex}
 #rotate{position:fixed;inset:0;z-index:99;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0b0c14;color:#e8e0cc;font:600 18px Georgia,serif;text-align:center;padding:24px}
 #rotate .ph{width:46px;height:78px;border:3px solid #c9a65c;border-radius:9px;animation:rot 2.2s ease-in-out infinite}
@@ -30,7 +30,8 @@ body.touch.playing #touch{display:flex}
 .pad{display:flex;gap:12px;align-items:center;pointer-events:auto}
 .pad button{width:66px;height:66px;border-radius:50%;border:2px solid rgba(216,210,196,.45);background:rgba(20,24,38,.45);color:#e6dfcf;font:600 15px Georgia,serif;touch-action:none;-webkit-tap-highlight-color:transparent}
 .pad button.on{background:rgba(216,190,120,.4)}
-.pad.right button[data-k=jump],.pad.right button[data-k=attack]{width:78px;height:78px}
+.pad.right button[data-k=attack]{width:78px;height:78px}
+.pad.right button[data-k=jump]{width:92px;height:92px;font-size:17px}
 .pad.left{gap:8px}
 .pad.right{gap:30px}
 .pad.right .col{gap:14px}
@@ -515,7 +516,7 @@ if(isTouch) document.body.classList.add('touch');
 /* Touch-Steuerung: jeder Finger wird dem nächstgelegenen Knopf zugeordnet (auch beim Gleiten). */
 const padBtns=[...document.querySelectorAll('.pad button')];
 const tMap=new Map();
-function btnAt(x,y){ let best=null, bd=1e9; for(const b of padBtns){ const r=b.getBoundingClientRect(); if(!r.width) continue; const cx=r.left+r.width/2, cy=r.top+r.height/2, rad=r.width/2; const d=Math.hypot(x-cx,y-cy)/rad; if(d<bd){ bd=d; best=b; } } return bd<=1.45?best:null; }
+function btnAt(x,y){ let best=null, bd=1e9; for(const b of padBtns){ const r=b.getBoundingClientRect(); if(!r.width) continue; const cx=r.left+r.width/2, cy=r.top+r.height/2, rad=r.width/2; const k=b.dataset.k==='jump'?1.15:1, d=Math.hypot(x-cx,y-cy)/(rad*k); if(d<bd){ bd=d; best=b; } } return bd<=1.6?best:null; }
 function syncPads(){ const want=new Set(); for(const b of tMap.values()) if(b) want.add(b); for(const b of padBtns){ const on=want.has(b), k=b.dataset.k; if(on!==b.classList.contains('on')){ b.classList.toggle('on',on); press(k,on); } } }
 function padActive(){ return document.body.classList.contains('playing')&&game.state==='play'; }
 function onTouch(e){ if(!padActive()&&e.type==='touchstart') return; let used=false;
@@ -705,7 +706,7 @@ function updPlayer(dt,jp,ap){
     if(mv){ P.vx+=mv*acc*dt; if(Math.abs(P.vx)>95) P.vx=Math.sign(P.vx)*95; P.dir=mv; }
     else { const fr=(P.onGround?1100:250)*dt; P.vx=Math.abs(P.vx)<=fr?0:P.vx-Math.sign(P.vx)*fr; }
   }
-  P.jumpBuf=jp?0.14:P.jumpBuf-dt; P.coyote=P.onGround?0.14:P.coyote-dt; if(P.onGround) P.jumped=false;
+  P.jumpBuf=jp?0.2:P.jumpBuf-dt; P.coyote=P.onGround?0.18:P.coyote-dt; if(P.onGround) P.jumped=false;
   if(jp&&!P.onGround&&P.coyote<=0&&P.wallT>0){ P.vy=-300; P.vx=-P.wallDir*150; P.dir=-P.wallDir; P.wallT=0; P.wallLock=0.16; P.airJumps=1; P.jumped=true; P.jumpT=0.2; P.jumpBuf=0; jp=false; sfx.jump(); burst(P.x+(P.wallDir>0?P.w:0),P.y+10,6,['#e8d8c0','#cfa878'],40,10); }
   if(P.jumpBuf>0&&P.coyote>0){ if(P.crouch) setCrouch(P,false); if(!P.crouch){ P.jumped=true; P.jumpT=0.2; P.vy=-310; P.jumpBuf=0; P.coyote=0; P.onGround=false; P.bouncing=false; P.carpet=null; sfx.jump(); } }
   else if(jp&&P.coyote<=0&&!P.jumped&&!P.zip&&!P.crouch){ P.jumped=true; P.jumpT=0.2; P.vy=-310; P.jumpBuf=0; P.bouncing=false; sfx.jump(); }
